@@ -1,0 +1,84 @@
+---
+title: 'Post 1: Breast Cancer Analysis'
+author: "Grace Puryear"
+date: "December 9, 2018"
+output: rmarkdown::github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Read in data
+
+```{r cars}
+#setwd("~/BZAN552")
+data <- read.table("BreastCancerData.txt",sep=",",col.names = c("Class","Age","Menopause","Tumor-Size","inv-nodes","node-caps","deg-malig","breast","breast-quad","irradiat"))
+data[,7] <- as.factor(data[,7])
+```
+
+## Creating Rules that predict Class (Recurrence/no-recurrence)
+
+
+```{r pressure}
+rules <- apriori(data,
+                 control = list(verbose=F),
+                 parameter = list(minlen=2, supp=0.01, conf=.99), #minimum 1% of all observations
+                 appearance = list(rhs=c("Class=no-recurrence-events",
+                                         "Class=recurrence-events"),
+                                   default="lhs"))
+rules.sorted <- sort(rules, by="lift")
+inspect(rules.sorted[1:20])
+
+#For itemsets that occur in at least 1% of all women in the dataset, the top 20 have rhs with recurrence events. 
+
+```
+
+
+```{r}
+rules <- apriori(data,
+                 control = list(verbose=F),
+                 parameter = list(minlen=2, supp=0.05, conf=.99), #minimum 5% of all observations
+                 appearance = list(rhs=c("Class=no-recurrence-events",
+                                         "Class=recurrence-events"),
+                                   default="lhs"))
+rules.sorted <- sort(rules, by="lift")
+inspect(rules.sorted[1:20])
+
+#For itemsets that occur in at least 5% of all women in the dataset, the top 20 have rhs with no-recurrence events. 
+
+```
+
+
+***Using Naive Bayes to predict Class***
+
+```{r}
+#Rule based classifier using jrip
+set.seed(1);jripFit <- train(data[,-1], data[,1], method = "JRip")
+summary(jripFit)
+plot(jripFit)
+jripFit$finalModel
+#JRIP only outputs 2 rules. The first one indicates that if the degree of malignancy is 3 (the tumor predominately consists of cells that are highly abnormal) and node.caps=yes (the cancer is allowed to spread to surrounding tissues), a recurrence in cancer is likely to come also.
+#If the degree of malignancy is not 3 and node caps is no, the second rule indicates that the cancer will not return. 
+#JRIP correctly classifies 75.9% of the instances correctly.
+```
+
+
+```{r}
+#using PART method
+set.seed(1);partFit <- train(data[,-1], data[,1], method = "PART")
+plot(partFit)
+summary(partFit)
+partFit$finalModel # print the rules
+#INTERPRETATION: If a woman does not have node.caps (the cancer has not replaced a lymph node and penetrated the capsule of the lymph node, which would allow it to invade the surround tissues),
+#the number of axillary lymph nodes that contain metastatic breast cancer is between 0 and 2, and the tumor size is in the 20-24, the woman is not likely to have a return of cancer. 
+#If a woman has a degree of malignancy of 1 (tumors that are grade 1 predominately consist of cells that retain many of their usual characteristics) and have a tumor size
+#10-14 are also likely to not having recurrence events.
+#The first time a rule with a recurrent case occurs is when node.caps=yes (the cancer is allowed to spread to surrounding tissues). This intuitively makes sense.
+#The PART method correctly classifies 80.1% of the instances correctly and outputs 18 rules.
+
+###PART has the better accuracy!
+```
+
+
+
