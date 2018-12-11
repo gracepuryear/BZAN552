@@ -1,0 +1,155 @@
+---
+title: "Post 3"
+author: "Grace Puryear"
+date: "December 11, 2018"
+output: rmarkdown::github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r}
+spotify <- read.csv('SpotifyAudioFeaturesNov2018.csv')
+library(ggplot2)
+library(reshape)
+library(class)
+```
+
+```{r}
+#Scaling
+spotify$acousticness <- scale(spotify$acousticness)
+spotify$danceability <- scale(spotify$danceability)
+spotify$duration_ms <- scale(spotify$duration_ms)
+spotify$energy <- scale(spotify$energy)
+spotify$instrumentalness <- scale(spotify$instrumentalness)
+spotify$key <- scale(spotify$key)
+spotify$liveness <- scale(spotify$liveness) 
+spotify$loudness <- scale(spotify$loudness)
+spotify$mode <- scale(spotify$mode)
+spotify$speechiness <- scale(spotify$speechiness)
+spotify$tempo <- scale(spotify$tempo)
+spotify$time_signature <- scale(spotify$time_signature)
+spotify$valence <- scale(spotify$valence)
+```
+
+***Initial Analysis***
+```{r}
+# Visualizing popularity
+qplot(spotify$popularity, binwidth = 1, 
+      main = "Histogram of ratings", xlab = "Raw Popularity")
+
+#appears to have a normal distribution besides the peak at 0.
+
+m5 <- head(spotify[order(spotify$popularity,decreasing = TRUE),],5)
+m5<- m5[, c(1,4,5,7,8,10,16)] 
+m5<- as.data.frame(m5)
+m5.long <- melt(m5, id.vars="artist_name")
+
+mp1<- ggplot(data=m5.long, aes(x=variable, y=value))+geom_bar(aes(y=value, fill=artist_name),stat="identity", alpha=0.8 , position="dodge")+ ylab("Value")+ xlab("Variables to a song")+coord_flip()+ggtitle("Top 5 songs in Spotify 2017 ")
+mp1
+
+#In this initial analysis, we can see that the top 5 most popular songs have high valence, energy, and danceability and low liveness, instrumentalness, and acousticness.
+```
+
+
+
+***What makes a song popular?***
+```{r}
+fit <- kmeans(spotify[,4:16],4)
+# determining number of clusters with SSE
+SSEs <- rep(NA,10) # a vector to store SSEs for different k's
+SSEs[1] <- fit$totss # total SSE if no clustering is done
+for(k in 2:10){
+  fit <- kmeans(spotify[,4:16],k)
+  SSEs[k] <- fit$tot.withinss
+}
+par(mar=c(4,4,1,1))
+plot(1:10,SSEs,type="b",xlab="Number of Clusters")
+
+set.seed(1);fit <- kmeans(spotify[,4:16], 6) #using k=6
+fit$center  # centers of each variable
+
+spotify_fit <- cbind(spotify,fit$cluster)
+
+
+#Here, I chose to stick with 6 clusters for the rest of the analysis. Although changing each time, 6 clusters consistently seemed to be the 'elbow' of the plot.
+#In other words, it was the point at which the sum of squared errors went from a dramatic decreasing to a constant decrease. 
+```
+
+
+##Using 6 clusters
+```{r}
+df <- as.data.frame(matrix(data=NA,nrow=6,ncol=2))
+colnames(df)[1] <- "cluster"
+colnames(df)[2] <- "average popularity"
+for(i in 1:6){
+  popularity <- mean(spotify_fit[which(spotify_fit$`fit$cluster`==i),"popularity"])
+  df[i,1] <- i
+  df[i,2] <- popularity
+}
+print(df)
+boxplot(spotify_fit$popularity~spotify_fit$`fit$cluster`)
+#There is no obvious difference in popularity. However, we do notice that clusters 1 and 2 have the lowest average popularity. Clusters 3 and 6 have the highest average popularity.
+
+
+
+##Boxplots for binning popularity with other variables
+boxplot(spotify_fit$acousticness~cut(spotify$popularity,breaks = 10),ylab="Acousticness",xlab="Popularity")
+#There is no obvious difference between the popularity groups and the level of acousticness. However it does appear that the least popular group does have the highest level of acousticness, while the 70-80 range of popularity had the lowest level of acousticness.
+
+boxplot(spotify_fit$danceability~cut(spotify$popularity,breaks = 10),xlab="Popularity",ylab="Danceability")
+#Here it does seem that an increase in popularity is associated with an increase in danceability.
+
+#After doing analysis on the other variables, these are the only variables that show any difference between clusters.
+
+```
+
+***Can we make recommendations for Spotify listeners?***
+
+```{r}
+colnames(spotify_fit)[18] <- "Cluster"
+
+
+c1songs <- spotify_fit[which(spotify_fit$Cluster==1),]
+c1 <- as.character(head(c1songs[order(c1songs$popularity,decreasing = TRUE),"track_name"],10))
+c2songs <- spotify_fit[which(spotify_fit$Cluster==2),]
+c2 <- as.character(head(c2songs[order(c2songs$popularity,decreasing = TRUE),"track_name"],10))
+c3songs <- spotify_fit[which(spotify_fit$Cluster==3),]
+c3 <- as.character(head(c3songs[order(c3songs$popularity,decreasing = TRUE),"track_name"],10))
+c4songs <- spotify_fit[which(spotify_fit$Cluster==4),]
+c4 <- as.character(head(c4songs[order(c4songs$popularity,decreasing = TRUE),"track_name"],10))
+c5songs <- spotify_fit[which(spotify_fit$Cluster==5),]
+c5 <- as.character(head(c5songs[order(c5songs$popularity,decreasing = TRUE),"track_name"],10))
+c6songs <- spotify_fit[which(spotify_fit$Cluster==6),]
+c6 <- as.character(head(c6songs[order(c6songs$popularity,decreasing = TRUE),"track_name"],10))
+
+top_songs <- cbind(c1,c2,c3,c4,c5,c6)
+colnames(top_songs) <- c("Cluster 1", "Cluster 2" ,"Cluster 3", "Cluster 4", "Cluster 5", "Cluster 6")
+top_songs
+
+#These are the most popular songs for each cluster. At first glance, it seems a little more obvious why Clusters 1 and 2 are
+#less popular (they are either older songs or less well known). Clusters 3 and 6 are the currently most popular songs. Because 
+#popularity is only for the month of November, it makes sense that the most recently released songs
+#and the most well known artists would appear in the most popular clusters.
+```
+
+
+***Using K nearest neighors to predict Popularity***
+```{r}
+index <- sample(1:nrow(spotify),.5*nrow(spotify))
+
+spot_train <- spotify[index,c(4:16)]
+spot_test <- spotify[-index,c(4:16)]
+spot_train_labels <- spotify[index, 17]
+spot_test_labels <- spotify[-index, 17]
+k_nn <- knn(train = spot_train, test = spot_test,cl = spot_train_labels, k=20)
+k_nn <- as.integer(k_nn)
+errors = abs(k_nn - spot_test_labels)
+mean(errors)
+
+
+#Finally, I have used K nearest neighbors to predict popularity. This uses the euclidean distance to see what 20 songs are the most similar and takes the average popularity of those songs. This can be used where someone wants to see how popular a song will be given the song attributes. The average error is about 17.8 points off what the popularity actually is.
+```
+
